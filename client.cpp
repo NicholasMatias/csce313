@@ -55,22 +55,9 @@ int main (int argc, char *argv[]) {
 	// Run the server process as a child of the client process
 	pid_t pid = fork();
 	if (pid == 0){
-
-		// give arguments for the server
-		
-		// server needs './server', '-m', '<val for -m arg>', 'NULL'
-		
-		char* args[] = {
-			(char*)"./server",
-			(char*)"-m",
-			(char*)to_string(m).c_str(),
-			NULL
-		};
-
-		// in the child, run execvp using the server arguments
-		
-		execvp(args[0], args);
-		return(1);
+		string message_string = to_string(m);
+		const char* server_args[] = {"./server", "-m", message_string.c_str(), NULL};
+		execvp(server_args[0], (char* const*)server_args);
 	}
 
     FIFORequestChannel cont_chan("control", FIFORequestChannel::CLIENT_SIDE);
