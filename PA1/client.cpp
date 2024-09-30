@@ -1,19 +1,19 @@
-// /*
-// 	Author of the starter code
-//     Yifan Ren
-//     Department of Computer Science & Engineering
-//     Texas A&M University
-//     Date: 9/15/2024
+/*
+	Author of the starter code
+    Yifan Ren
+    Department of Computer Science & Engineering
+    Texas A&M University
+    Date: 9/15/2024
 	
-// 	Please include your Name, UIN, and the date below
-// 	Name:
-// 	UIN:
-// 	Date:
-// */
-// #include "common.h"
-// #include "FIFORequestChannel.h"
+	Please include your Name, UIN, and the date below
+	Name: Nicholas Matias	
+	UIN: 232006560
+	Date: 9/29/24
+*/
+#include "common.h"
+#include "FIFORequestChannel.h"
 
-// using namespace std;
+using namespace std;
 
 
 // int main (int argc, char *argv[]) {
@@ -81,8 +81,7 @@
 //     MESSAGE_TYPE m = QUIT_MSG;
 //     chan.cwrite(&m, sizeof(MESSAGE_TYPE));
 // }
-#include "FIFORequestChannel.h"
-#include "common.h"
+
 #include <iostream>
 #include <string>
 #include <cstring>
