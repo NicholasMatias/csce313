@@ -83,21 +83,92 @@ using namespace std;
 // }
 
 #include <iostream>
-#include <string>
-#include <cstring>
+#include <fstream>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <cstring>
+
+using namespace std;
+
+void requestDataPoint(FIFORequestChannel &chan, int patient, double time, int ecg) {
+    datamsg dmsg(patient, time, ecg);
+    chan.cwrite(&dmsg, sizeof(datamsg));
+
+    double response;
+    chan.cread(&response, sizeof(double));
+    cout << "ECG " << ecg << " value for patient " << patient << " at time " << time << " is " << response << endl;
+}
+
+void requestFile(FIFORequestChannel &chan, const string &filename, int buffer_capacity) {
+    // Send file length request
+    filemsg fm(0, 0);
+    int len = sizeof(filemsg) + filename.size() + 1;
+    char* buf = new char[len];
+
+    memcpy(buf, &fm, sizeof(filemsg));
+    strcpy(buf + sizeof(filemsg), filename.c_str());
+    chan.cwrite(buf, len);
+
+    // Receive file length
+    __int64_t file_length;
+    chan.cread(&file_length, sizeof(file_length));
+    cout << "File size: " << file_length << " bytes" << endl;
+
+    // Open file to write chunks
+    ofstream ofs("received/" + filename, ios::binary);
+    if (!ofs.is_open()) {
+        cerr << "Error opening file for writing." << endl;
+        delete[] buf;
+        return;
+    }
+
+    // Request file in chunks
+    __int64_t offset = 0;
+    while (offset < file_length) {
+        int chunk_size = min((__int64_t)buffer_capacity, file_length - offset);
+        filemsg chunk_fm(offset, chunk_size);
+        memcpy(buf, &chunk_fm, sizeof(filemsg));
+        chan.cwrite(buf, len);
+
+        // Read the chunk and write to file
+        char* recv_buffer = new char[chunk_size];
+        chan.cread(recv_buffer, chunk_size);
+        ofs.write(recv_buffer, chunk_size);
+        delete[] recv_buffer;
+
+        offset += chunk_size;
+    }
+
+    ofs.close();
+    delete[] buf;
+    cout << "File transfer completed." << endl;
+}
+
+FIFORequestChannel* openNewChannel(FIFORequestChannel &chan) {
+    MESSAGE_TYPE nch_msg(NEWCHANNEL_MSG);
+    chan.cwrite(&nch_msg, sizeof(MESSAGE_TYPE));
+
+    char new_channel_name[MAX_MESSAGE];
+    chan.cread(new_channel_name, sizeof(new_channel_name));
+    return new FIFORequestChannel(new_channel_name, FIFORequestChannel::CLIENT_SIDE);
+}
+
+void closeChannel(FIFORequestChannel &chan) {
+    MESSAGE_TYPE quit_msg(QUIT_MSG);
+    chan.cwrite(&quit_msg, sizeof(MESSAGE_TYPE));
+}
 
 int main(int argc, char *argv[]) {
-    // Process command-line arguments
-    int opt;
-    int patient = 0;
+    // Variables to store arguments
+    int patient = 1;
     double time = 0.0;
-    int ecg = 0;
-    std::string filename;
+    int ecg = 1;
+    string filename = "";
     int buffer_capacity = MAX_MESSAGE;
     bool new_channel = false;
 
+    // Parse command-line arguments
+    int opt;
     while ((opt = getopt(argc, argv, "p:t:e:f:m:c")) != -1) {
         switch (opt) {
             case 'p':
@@ -119,84 +190,42 @@ int main(int argc, char *argv[]) {
                 new_channel = true;
                 break;
             default:
-                std::cerr << "Unknown option" << std::endl;
+                cerr << "Invalid argument!" << endl;
                 return -1;
         }
     }
 
-    // Start the server as a child process
+    // Task 1: Run the server as a child process
     pid_t pid = fork();
     if (pid == 0) {
-        // Child process: Run the server
-        char* args[] = {"./server", NULL};
+        char* args[] = {"./server", nullptr};
         execvp(args[0], args);
         exit(0);
     }
 
-    // Parent process: Communicate with server
+    // Parent process: Connect to server
     FIFORequestChannel chan("control", FIFORequestChannel::CLIENT_SIDE);
 
-    // Handle data point request (-p, -t, -e)
-    if (patient > 0 && time >= 0 && (ecg == 1 || ecg == 2)) {
-        datamsg dmsg(patient, time, ecg);
-        chan.cwrite(&dmsg, sizeof(datamsg));
-        
-        double response;
-        chan.cread(&response, sizeof(double));
-        std::cout << "ECG Value: " << response << std::endl;
-    }
-
-    // Handle file request (-f)
-    if (!filename.empty()) {
-        // Send a file message to get file length
-        filemsg fmsg(0, 0);
-        int len = sizeof(filemsg) + filename.size() + 1;
-        char buf[len];
-        memcpy(buf, &fmsg, sizeof(filemsg));
-        strcpy(buf + sizeof(filemsg), filename.c_str());
-
-        chan.cwrite(buf, len);
-
-        __int64_t filesize;
-        chan.cread(&filesize, sizeof(filesize));
-        std::cout << "File size: " << filesize << " bytes" << std::endl;
-
-        // Request the file in chunks
-        __int64_t offset = 0;
-        char recvbuf[buffer_capacity];
-        while (offset < filesize) {
-            int remaining = std::min((__int64_t)buffer_capacity, filesize - offset);
-            filemsg chunkmsg(offset, remaining);
-            memcpy(buf, &chunkmsg, sizeof(filemsg));
-            strcpy(buf + sizeof(filemsg), filename.c_str());
-
-            chan.cwrite(buf, len);
-            chan.cread(recvbuf, remaining);
-            // Write received chunk to file (you can use fwrite for binary data)
-            offset += remaining;
-        }
-    }
-
-    // Handle new channel request (-c)
+    // Task 4: Open new channel if requested
+    FIFORequestChannel* data_channel = &chan;
     if (new_channel) {
-        // Request a new channel
-        MESSAGE_TYPE nch_msg(NEWCHANNEL_MSG);
-        chan.cwrite(&nch_msg, sizeof(MESSAGE_TYPE));
-
-        char new_channel_name[256];
-        chan.cread(new_channel_name, sizeof(new_channel_name));
-        FIFORequestChannel new_chan(new_channel_name, FIFORequestChannel::CLIENT_SIDE);
-        
-        // Use the new channel for further communication (optional logic)
-        // After use, close it properly with QUIT_MSG
+        data_channel = openNewChannel(chan);
     }
 
-    // Send QUIT_MSG to close communication
-    MESSAGE_TYPE quit_msg(QUIT_MSG);
-    chan.cwrite(&quit_msg, sizeof(MESSAGE_TYPE));
+    // Task 2: Request data points
+    if (!filename.empty()) {
+        requestFile(*data_channel, filename, buffer_capacity);
+    } else {
+        requestDataPoint(*data_channel, patient, time, ecg);
+    }
 
-    // Wait for the server to exit
-    wait(NULL);
+    // Task 5: Close channels
+    closeChannel(*data_channel);
+    if (data_channel != &chan) {
+        closeChannel(chan);
+        delete data_channel;
+    }
 
+    wait(NULL);  // Wait for the server to exit
     return 0;
 }
